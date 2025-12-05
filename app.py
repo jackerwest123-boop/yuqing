@@ -61,13 +61,7 @@ _, state.range_label, state.start_date, state.end_date = _compute_dates(
 )
 
 
-@app.route("/")
-def index():
-    return render_template("index.html", state=state)
-
-
-@app.route("/demo")
-def demo():
+def _load_demo_state():
     today = datetime.date.today().strftime("%Y-%m-%d")
     demo_results = [
         SearchResult(
@@ -106,6 +100,18 @@ def demo():
     state.results = demo_results
     state.duration = 0.0
 
+
+@app.route("/")
+def index():
+    if request.args.get("demo"):
+        _load_demo_state()
+        flash("已加载示例数据，可直接预览界面，无需运行爬虫。")
+    return render_template("index.html", state=state)
+
+
+@app.route("/demo")
+def demo():
+    _load_demo_state()
     flash("已加载示例数据，可直接预览界面，无需运行爬虫。")
     return redirect(url_for("index"))
 
