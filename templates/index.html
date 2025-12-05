@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block title %}情报搜索助手{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">1）配置关键字组合</h5>
+        <p class="text-muted">每行代表一组关键字，组内以空格分隔。点击“随机生成”可打乱组合。</p>
+        <div class="mb-3">
+          <label class="form-label">关键字输入</label>
+          <textarea id="keyword-input" class="form-control" rows="6" placeholder="如：\n半导体 投资\n芯片 供应链" name=""></textarea>
+        </div>
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <input type="number" id="combo-size" class="form-control" style="max-width: 140px;" min="1" value="2">
+          <button class="btn btn-secondary" id="random-btn">随机生成</button>
+          <button class="btn btn-outline-secondary" id="shuffle-btn">重新洗牌</button>
+        </div>
+        <form action="{{ url_for('search') }}" method="post">
+          <div class="mb-3">
+            <label class="form-label">待搜索的关键字组合</label>
+            <textarea id="keyword-sets" name="keyword_sets" class="form-control" rows="6" required>{% for ks in state.keyword_sets %}{{ ks|join(' ') }}
+{% endfor %}</textarea>
+          </div>
+          <h5 class="card-title">2）时间范围</h5>
+          <div class="mb-3">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="range_option" id="range-1d" value="1d" checked>
+              <label class="form-check-label" for="range-1d">最近一天</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="range_option" id="range-3d" value="3d">
+              <label class="form-check-label" for="range-3d">最近三天</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="range_option" id="range-1m" value="1m">
+              <label class="form-check-label" for="range-1m">最近一个月</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="range_option" id="range-custom" value="custom">
+              <label class="form-check-label" for="range-custom">自定义</label>
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col">
+              <label class="form-label">开始日期</label>
+              <input type="date" name="start_date" class="form-control">
+            </div>
+            <div class="col">
+              <label class="form-label">结束日期</label>
+              <input type="date" name="end_date" class="form-control">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">执行搜索</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="card-title">3）搜索结果</h5>
+        {% if state.results %}
+          <p class="text-muted">时间范围：{{ state.range_label }}（{{ state.start_date }} ~ {{ state.end_date }}），耗时 {{ '%.2f'|format(state.duration) }} 秒</p>
+          <div class="list-group result-list">
+            {% for item in state.results %}
+              <label class="list-group-item">
+                <div class="d-flex w-100 justify-content-between">
+                  <div>
+                    <input class="form-check-input me-2" type="checkbox" name="selected" value="{{ loop.index0 }}" form="analysis-form">
+                    <a href="{{ item.link }}" target="_blank" class="fw-bold">{{ item.title }}</a>
+                  </div>
+                  <small class="text-muted">{{ item.published_at }} · {{ item.media_cn }} ({{ item.media_en }}) · {{ '%.2f'|format(item.elapsed) }}s</small>
+                </div>
+                <div class="mb-1 text-muted">作者：{{ item.author }}</div>
+                <p class="mb-1 small">{{ item.content[:260] }}{% if item.content|length > 260 %}...{% endif %}</p>
+              </label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="text-muted">尚无搜索结果，请先配置关键字并执行搜索。</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">4）AI 结果分析</h5>
+        <form action="{{ url_for('analyze') }}" method="post" id="analysis-form">
+          <div class="mb-3">
+            <label class="form-label">向 AI 提问</label>
+            <textarea name="question" class="form-control" rows="3" placeholder="请输入针对选中情报的提问"></textarea>
+          </div>
+          <button type="submit" class="btn btn-success">开始分析</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
