@@ -30,7 +30,6 @@ class SearchState:
     duration: float = 0.0
 
 
-state = SearchState()
 def _compute_dates(range_option: str, custom_start: str, custom_end: str) -> Tuple[str, str, str, str]:
     today = datetime.date.today()
     range_label = "Custom"
@@ -52,6 +51,9 @@ def _parse_keyword_sets(raw: str) -> List[List[str]]:
     keyword_lines = [line.strip() for line in raw.splitlines() if line.strip()]
     return [line.split() for line in keyword_lines if line]
 
+
+# 全局搜索状态
+state = SearchState()
 
 # 初始化默认日期范围
 _, state.range_label, state.start_date, state.end_date = _compute_dates(
