@@ -1,0 +1,23 @@
+body {
+  background: #f6f8fa;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.result-list {
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.result-list .list-group-item {
+  border-left: 4px solid #0d6efd;
+  margin-bottom: 0.5rem;
+}
+
+textarea.form-control {
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
