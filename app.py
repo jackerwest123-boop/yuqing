@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 
 from crawler import GoogleCrawler, SearchResult
 
@@ -182,6 +182,12 @@ def analyze():
     answer = _local_answer(question, selected)
     flash(answer)
     return redirect(url_for("index"))
+
+
+@app.route("/.well-known/appspecific/com.chrome.devtools.json")
+def chrome_devtools_probe():
+    """避免浏览器探测请求报 404，返回空配置。"""
+    return jsonify({"status": "ok"})
 
 
 def _local_answer(question: str, results: List[SearchResult]) -> str:
