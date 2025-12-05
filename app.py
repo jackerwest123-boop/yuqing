@@ -132,6 +132,13 @@ def search():
         range_option, custom_start, custom_end
     )
 
+    # 先保留用户输入的搜索配置，即使爬虫失败也能在页面上回显，便于调整后重试
+    state.keyword_sets = keyword_sets
+    state.range_option = range_option
+    state.range_label = range_label
+    state.start_date = start_date
+    state.end_date = end_date
+
     try:
         crawler = GoogleCrawler()
         results, duration = crawler.run(
@@ -141,11 +148,6 @@ def search():
         flash(str(exc))
         return redirect(url_for("index"))
 
-    state.keyword_sets = keyword_sets
-    state.range_option = range_option
-    state.range_label = range_label
-    state.start_date = start_date
-    state.end_date = end_date
     state.results = results
     state.duration = duration
 
