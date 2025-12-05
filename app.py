@@ -63,6 +63,50 @@ def index():
     return render_template("index.html", state=state)
 
 
+@app.route("/demo")
+def demo():
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    demo_results = [
+        SearchResult(
+            title="示例：AI 驱动的安全情报分析",
+            author="示例作者",
+            published_at=today,
+            media_cn="路透社",
+            media_en="reuters.com",
+            content=(
+                "这是一段用于预览界面的示例正文，展示了搜索结果的排版、媒体中英文名、"
+                "作者、发布时间以及摘要截断的效果。使用“快速预览”即可无需运行爬虫直接查看界面。"
+            ),
+            link="https://www.reuters.com/example",
+            elapsed=0.05,
+        ),
+        SearchResult(
+            title="示例：供应链风险监测周报",
+            author="示例作者",
+            published_at=today,
+            media_cn="纽约时报",
+            media_en="nytimes.com",
+            content=(
+                "第二条示例结果，便于快速对比列表样式、勾选框、多条结果展示以及 AI 分析表单。"
+                "真实搜索时会由爬虫自动填充。"
+            ),
+            link="https://www.nytimes.com/example",
+            elapsed=0.04,
+        ),
+    ]
+
+    state.keyword_sets = [["示例", "AI"], ["供应链", "风险"]]
+    state.range_option = "demo"
+    state.range_label = "示例数据"
+    state.start_date = today
+    state.end_date = today
+    state.results = demo_results
+    state.duration = 0.0
+
+    flash("已加载示例数据，可直接预览界面，无需运行爬虫。")
+    return redirect(url_for("index"))
+
+
 @app.route("/search", methods=["POST"])
 def search():
     keyword_block = request.form.get("keyword_sets", "")

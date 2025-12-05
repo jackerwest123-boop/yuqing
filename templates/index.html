@@ -15,6 +15,7 @@
           <input type="number" id="combo-size" class="form-control" style="max-width: 140px;" min="1" value="2">
           <button class="btn btn-secondary" id="random-btn">随机生成</button>
           <button class="btn btn-outline-secondary" id="shuffle-btn">重新洗牌</button>
+          <a class="btn btn-outline-primary" href="{{ url_for('demo') }}">快速预览</a>
         </div>
         <form action="{{ url_for('search') }}" method="post">
           <div class="mb-3">
