@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 from selenium import webdriver
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -71,9 +71,14 @@ class GoogleCrawler:
         url = f"https://www.google.com/search?q={query}&num=30&hl=en"
         self.driver.get(url)
 
-        WebDriverWait(self.driver, 30).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "h3"))
-        )
+        try:
+            WebDriverWait(self.driver, 30).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "h3"))
+            )
+        except TimeoutException as exc:
+            raise RuntimeError(
+                "Google 搜索页面加载超时，请确认能够正常访问 Google（需科学上网或代理），" "再重试。"
+            ) from exc
 
         try:
             tools_btn = WebDriverWait(self.driver, 30).until(
@@ -115,9 +120,14 @@ class GoogleCrawler:
             pass
 
     def _get_search_results(self) -> List[str]:
-        WebDriverWait(self.driver, 20).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "h3"))
-        )
+        try:
+            WebDriverWait(self.driver, 20).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "h3"))
+            )
+        except TimeoutException as exc:
+            raise RuntimeError(
+                "检索结果加载超时，可能无法访问 Google，请检查网络或稍后再试。"
+            ) from exc
 
         elements = self.driver.find_elements(By.CSS_SELECTOR, "h3")
         links: List[str] = []
