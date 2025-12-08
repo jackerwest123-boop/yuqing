@@ -1,15 +1,17 @@
 import datetime
-import random
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from flask import Flask, flash, redirect, render_template, request, url_for
+from openai import OpenAI
 
 from crawler import GoogleCrawler, SearchResult
 
 
 app = Flask(__name__)
 app.secret_key = "keyword-search-demo"
+client = OpenAI()
 
 
 RANGE_PRESETS = {
@@ -110,22 +112,46 @@ def analyze():
         except ValueError:
             continue
 
-    answer = _local_answer(question, selected)
+    answer = _ai_answer(question, selected)
     flash(answer)
     return redirect(url_for("index"))
 
 
-def _local_answer(question: str, results: List[SearchResult]) -> str:
+def _ai_answer(question: str, results: List[SearchResult]) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "未检测到 OPENAI_API_KEY 环境变量，请在环境中配置有效的 OpenAI API Key。"
+
+    client.api_key = api_key
+
     context = []
     for res in results:
-        context.append(f"《{res.title}》({res.media_cn}/{res.media_en}, {res.published_at})")
-    context_text = "；".join(context) if context else "无可用结果"
+        context.append(
+            f"标题：{res.title}\n来源：{res.media_cn} ({res.media_en})\n链接：{res.link}\n摘要：{res.content[:400]}"
+        )
 
-    return (
-        f"AI 简要分析（离线规则模拟）：针对问题“{question}”，"
-        f"可参考的资料来源有：{context_text}。结合这些来源，"
-        "建议优先关注标题中与关键问题相关的段落，并对比发布时间的先后以评估情报的时效性。"
+    prompt = (
+        "你是一名情报分析助理，需要基于提供的搜索结果回答用户问题。"
+        "请引用相关来源并用简洁的中文要点回复，最后附上你的不确定性说明。"
     )
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": f"用户问题：{question}\n可用资料：\n" + "\n\n".join(context),
+                },
+            ],
+            temperature=0.3,
+            max_tokens=500,
+        )
+    except Exception as exc:  # pragma: no cover - runtime guard
+        return f"调用 OpenAI 接口失败：{exc}"
+
+    return completion.choices[0].message.content if completion.choices else "未能生成有效回答。"
 
 
 if __name__ == "__main__":
