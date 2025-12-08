@@ -72,7 +72,7 @@ class GoogleCrawler:
         return search_results
 
     def _fetch_result_links(self, query: str) -> List:
-        """Try a rendered DuckDuckGo page first, then fall back to HTML/lite responses."""
+        """Try a rendered DuckDuckGo page first, then multiple HTML fallbacks."""
 
         rendered_items: List = []
         try:
@@ -87,32 +87,26 @@ class GoogleCrawler:
         if rendered_items:
             return rendered_items
 
-        html_items = self._fetch_html_results(query)
-        if html_items:
-            return html_items
+        endpoints = [
+            ("https://duckduckgo.com/html/", ".result__a"),
+            ("https://html.duckduckgo.com/html/", ".result__a"),
+            ("https://duckduckgo.com/lite/", "a.result-link"),
+        ]
+        params = {"q": query, "kl": "us-en"}
 
-        # Fallback to lite endpoint if both rendered and HTML pages fail or return nothing.
-        try:
-            lite = self.session.get(
-                "https://duckduckgo.com/lite/", params={"q": query, "kl": "us-en"}, timeout=10
-            )
-        except requests.RequestException:
-            return []
+        for url, selector in endpoints:
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.RequestException:
+                continue
 
-        soup = BeautifulSoup(lite.text, "html.parser")
-        return soup.select("a.result-link")
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.select(selector)
+            if items:
+                return items
 
-    def _fetch_html_results(self, query: str) -> List:
-        try:
-            resp = requests.get(
-                "https://duckduckgo.com/html/", params={"q": query, "kl": "us-en"}, timeout=10
-            )
-            resp.raise_for_status()
-        except requests.RequestException:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        return soup.select("a.result__a, a.result__url")
+        return []
 
     def _get_attr(self, link_el, attr: str):
         if hasattr(link_el, "attrs"):
