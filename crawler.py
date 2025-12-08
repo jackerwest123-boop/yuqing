@@ -48,17 +48,7 @@ class GoogleCrawler:
         date_hint = self._build_date_hint(start_date, end_date)
         query = f"{quoted} {date_hint}".strip()
 
-        url = "https://duckduckgo.com/html/"
-        params = {"q": query, "kl": "us-en"}
-
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-        except requests.RequestException:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select(".result__a")
+        items = self._fetch_result_links(query)
 
         search_results: List[SearchResult] = []
         for link_el in items[:10]:
@@ -73,6 +63,30 @@ class GoogleCrawler:
                 search_results.append(extracted)
 
         return search_results
+
+    def _fetch_result_links(self, query: str) -> List:
+        """Try multiple DuckDuckGo HTML endpoints to reduce empty-result cases."""
+
+        endpoints = [
+            ("https://duckduckgo.com/html/", ".result__a"),
+            ("https://html.duckduckgo.com/html/", ".result__a"),
+            ("https://duckduckgo.com/lite/", "a.result-link"),
+        ]
+        params = {"q": query, "kl": "us-en"}
+
+        for url, selector in endpoints:
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.RequestException:
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.select(selector)
+            if items:
+                return items
+
+        return []
 
     def _clean_link(self, link: str) -> str:
         parsed = urllib.parse.urlparse(link)
