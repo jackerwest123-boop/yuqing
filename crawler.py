@@ -61,6 +61,11 @@ class GoogleCrawler:
             extracted = self._extract_content(cleaned_link, title)
             if extracted:
                 search_results.append(extracted)
+                continue
+
+            fallback = self._build_fallback_result(link_el, cleaned_link, title)
+            if fallback:
+                search_results.append(fallback)
 
         return search_results
 
@@ -99,6 +104,36 @@ class GoogleCrawler:
                 return link
 
         return link
+
+    def _build_fallback_result(self, link_el, link: str, title: str) -> SearchResult | None:
+        snippet = self._find_snippet_text(link_el)
+        media_cn, media_en = self._guess_media_names(link)
+
+        return SearchResult(
+            title=title,
+            author="未知作者",
+            published_at="未找到发布时间",
+            media_cn=media_cn,
+            media_en=media_en,
+            content=snippet or "未能抓取到正文内容。",
+            link=link,
+            elapsed=0.0,
+        )
+
+    def _find_snippet_text(self, link_el) -> str:
+        for ancestor in [link_el, link_el.parent, getattr(link_el, "parent", None) and link_el.parent.parent]:
+            if not ancestor:
+                continue
+
+            snippet_node = ancestor.find(class_=re.compile("snippet", re.IGNORECASE))
+            if snippet_node and snippet_node.get_text(strip=True):
+                return snippet_node.get_text(strip=True)
+
+            snippet_node = ancestor.find("p")
+            if snippet_node and snippet_node.get_text(strip=True):
+                return snippet_node.get_text(strip=True)
+
+        return ""
 
     def _extract_content(self, link: str, title: str) -> SearchResult | None:
         start_t = time.time()
