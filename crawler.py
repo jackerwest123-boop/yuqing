@@ -75,14 +75,15 @@ class GoogleCrawler:
         return search_results
 
     def _clean_link(self, link: str) -> str:
-        if "duckduckgo.com/l/?uddg=" in link:
-            parsed = urllib.parse.urlparse(link)
-            params = urllib.parse.parse_qs(parsed.query)
-            if "uddg" in params:
-                try:
-                    return urllib.parse.unquote(params["uddg"][0])
-                except Exception:
-                    return link
+        parsed = urllib.parse.urlparse(link)
+        params = urllib.parse.parse_qs(parsed.query)
+
+        if "uddg" in params and params["uddg"]:
+            try:
+                return urllib.parse.unquote(params["uddg"][0])
+            except Exception:
+                return link
+
         return link
 
     def _extract_content(self, link: str, title: str) -> SearchResult | None:
