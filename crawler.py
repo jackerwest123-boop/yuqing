@@ -72,27 +72,7 @@ class GoogleCrawler:
         return search_results
 
     def _fetch_result_links(self, query: str) -> List:
-        """Try a rendered DuckDuckGo page first, then multiple HTML fallbacks."""
-
-        resp = None
-        rendered_items: List = []
-        try:
-            resp = self.session.get(
-                "https://duckduckgo.com/", params={"q": query, "ia": "web"}, timeout=15
-            )
-            resp.html.render(timeout=20, sleep=1)
-            rendered_items = resp.html.find("a.result__a")
-        except Exception:
-            rendered_items = []
-
-        if rendered_items:
-            return rendered_items
-
-        if resp is not None:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            html_items = soup.select("a.result__a, a.result__url")
-            if html_items:
-                return html_items
+        """Try multiple DuckDuckGo HTML endpoints to reduce empty-result cases."""
 
         endpoints = [
             ("https://duckduckgo.com/html/", ".result__a"),
@@ -160,41 +140,22 @@ class GoogleCrawler:
         )
 
     def _find_snippet_text(self, link_el) -> str:
-        if type(link_el).__module__.startswith("requests_html"):
-            ancestors = [link_el]
-            try:
-                parent = link_el.element.getparent()
-                if parent is not None:
-                    ancestors.append(parent)
-                    grand = parent.getparent()
-                    if grand is not None:
-                        ancestors.append(grand)
-            except Exception:
-                pass
+        ancestors = [
+            link_el,
+            getattr(link_el, "parent", None),
+            getattr(link_el, "parent", None)
+            and getattr(link_el.parent, "parent", None),
+        ]
 
-            for anc in ancestors:
-                for selector in [".result__snippet", "p"]:
-                    try:
-                        found = anc.find(selector, first=True)
-                        if found and getattr(found, "text", ""):
-                            return found.text.strip()
-                    except Exception:
-                        continue
-
-                if hasattr(anc, "text") and anc.text:
-                    return anc.text.strip()
-
-            return ""
-
-        for ancestor in [link_el, link_el.parent, getattr(link_el, "parent", None) and link_el.parent.parent]:
-            if not ancestor:
+        for anc in ancestors:
+            if not anc:
                 continue
 
-            snippet_node = ancestor.find(class_=re.compile("snippet", re.IGNORECASE))
+            snippet_node = anc.find(class_=re.compile("snippet", re.IGNORECASE))
             if snippet_node and snippet_node.get_text(strip=True):
                 return snippet_node.get_text(strip=True)
 
-            snippet_node = ancestor.find("p")
+            snippet_node = anc.find("p")
             if snippet_node and snippet_node.get_text(strip=True):
                 return snippet_node.get_text(strip=True)
 
@@ -210,7 +171,7 @@ class GoogleCrawler:
             return None
 
         soup = BeautifulSoup(resp.text, "html.parser")
-        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
+        paragraphs = [p.get_get(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
         content = "\n".join(paragraphs[:10])
 
         time_text = self._find_time_text(soup)
