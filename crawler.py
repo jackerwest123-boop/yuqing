@@ -72,21 +72,26 @@ class GoogleCrawler:
         return search_results
 
     def _fetch_result_links(self, query: str) -> List:
-        """Use a rendered DuckDuckGo page (headless browser) to reduce empty results."""
+        """Try a rendered DuckDuckGo page first, then fall back to HTML/lite responses."""
 
+        rendered_items: List = []
         try:
             resp = self.session.get(
                 "https://duckduckgo.com/", params={"q": query, "ia": "web"}, timeout=15
             )
             resp.html.render(timeout=20, sleep=1)
+            rendered_items = resp.html.find("a.result__a")
         except Exception:
-            return []
+            rendered_items = []
 
-        items = resp.html.find("a.result__a")
-        if items:
-            return items
+        if rendered_items:
+            return rendered_items
 
-        # Fallback to lite endpoint if the rendered page still fails.
+        html_items = self._fetch_html_results(query)
+        if html_items:
+            return html_items
+
+        # Fallback to lite endpoint if both rendered and HTML pages fail or return nothing.
         try:
             lite = self.session.get(
                 "https://duckduckgo.com/lite/", params={"q": query, "kl": "us-en"}, timeout=10
@@ -96,6 +101,18 @@ class GoogleCrawler:
 
         soup = BeautifulSoup(lite.text, "html.parser")
         return soup.select("a.result-link")
+
+    def _fetch_html_results(self, query: str) -> List:
+        try:
+            resp = requests.get(
+                "https://duckduckgo.com/html/", params={"q": query, "kl": "us-en"}, timeout=10
+            )
+            resp.raise_for_status()
+        except requests.RequestException:
+            return []
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        return soup.select("a.result__a, a.result__url")
 
     def _get_attr(self, link_el, attr: str):
         if hasattr(link_el, "attrs"):
