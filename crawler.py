@@ -4,12 +4,8 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from selenium import webdriver
-from selenium.common.exceptions import WebDriverException
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+import requests
+from bs4 import BeautifulSoup
 
 
 @dataclass
@@ -25,153 +21,111 @@ class SearchResult:
 
 
 class GoogleCrawler:
-    """A light wrapper around the provided Selenium workflow."""
+    """A lightweight crawler that uses DuckDuckGo HTML search for speed."""
 
     def __init__(self):
-        self.driver = self._init_driver()
-
-    def _init_driver(self):
-        options = Options()
-        options.add_argument("--ignore-certificate-errors")
-        options.add_argument("--allow-insecure-localhost")
-        options.add_argument("--ignore-ssl-errors")
-        options.add_argument("--start-maximized")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--lang=en-US")
-
-        try:
-            return webdriver.Chrome(options=options)
-        except WebDriverException as exc:  # pragma: no cover - runtime guard
-            raise RuntimeError(
-                "无法初始化 ChromeDriver，请确认已安装 Chrome 浏览器并允许在当前环境运行图形界面。"
-            ) from exc
+        self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+                ),
+            }
+        )
 
     def run(self, keyword_sets: List[List[str]], start_date: str, end_date: str) -> Tuple[List[SearchResult], float]:
         results: List[SearchResult] = []
         start_ts = time.time()
 
         for keywords in keyword_sets:
-            self._google_search(keywords, start_date, end_date)
-            links = self._get_search_results()
-            for link in links:
-                extracted = self._extract_content(link)
-                if extracted:
-                    results.append(extracted)
+            results.extend(self._search_keywords(keywords, start_date, end_date))
 
         return results, time.time() - start_ts
 
-    def _google_search(self, keywords: List[str], start_date: str, end_date: str):
-        query = " ".join([f'"{kw}"' for kw in keywords])
-        query = urllib.parse.quote(query)
+    def _search_keywords(self, keywords: List[str], start_date: str, end_date: str) -> List[SearchResult]:
+        quoted = " ".join([f'"{kw}"' for kw in keywords])
+        date_hint = self._build_date_hint(start_date, end_date)
+        query = f"{quoted} {date_hint}".strip()
 
-        url = f"https://www.google.com/search?q={query}&num=30&hl=en"
-        self.driver.get(url)
-
-        WebDriverWait(self.driver, 30).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "h3"))
-        )
+        url = "https://duckduckgo.com/html/"
+        params = {"q": query, "kl": "us-en"}
 
         try:
-            tools_btn = WebDriverWait(self.driver, 30).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[@role='button' and .='Tools']"))
-            )
-            tools_btn.click()
-            time.sleep(0.5)
+            resp = self.session.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+        except requests.RequestException:
+            return []
 
-            time_btn = WebDriverWait(self.driver, 30).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[@role='button' and .='Any time']"))
-            )
-            time_btn.click()
-            time.sleep(0.5)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        items = soup.select(".result__a")
 
-            custom_range_btn = WebDriverWait(self.driver, 30).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Custom range')]"))
-            )
-            custom_range_btn.click()
-            time.sleep(0.5)
-
-            start_input = WebDriverWait(self.driver, 30).until(
-                EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='Start date']"))
-            )
-            start_input.clear()
-            start_input.send_keys(start_date)
-
-            end_input = WebDriverWait(self.driver, 30).until(
-                EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='End date']"))
-            )
-            end_input.clear()
-            end_input.send_keys(end_date)
-
-            apply_btn = WebDriverWait(self.driver, 30).until(
-                EC.element_to_be_clickable((By.XPATH, "//input[@value='Apply']"))
-            )
-            apply_btn.click()
-            time.sleep(1)
-        except Exception:  # pragma: no cover - best effort
-            pass
-
-    def _get_search_results(self) -> List[str]:
-        WebDriverWait(self.driver, 20).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "h3"))
-        )
-
-        elements = self.driver.find_elements(By.CSS_SELECTOR, "h3")
-        links: List[str] = []
-
-        for el in elements:
-            try:
-                link = el.find_element(By.XPATH, "..").get_attribute("href")
-                if link:
-                    links.append(link)
-            except Exception:
+        search_results: List[SearchResult] = []
+        for link_el in items[:10]:
+            href = link_el.get("href")
+            title = link_el.get_text(strip=True)
+            if not href or not title:
                 continue
 
-        valid_links = [
-            l
-            for l in links
-            if isinstance(l, str)
-            and "wikipedia.org" not in l
-            and "youtube.com" not in l
-            and "instagram.com" not in l
-            and not re.search(r"[\u4e00-\u9fa5]", l)
-        ]
+            cleaned_link = self._clean_link(href)
+            extracted = self._extract_content(cleaned_link, title)
+            if extracted:
+                search_results.append(extracted)
 
-        return valid_links[:10]
+        return search_results
 
-    def _extract_content(self, link: str) -> SearchResult | None:
+    def _clean_link(self, link: str) -> str:
+        if "duckduckgo.com/l/?uddg=" in link:
+            parsed = urllib.parse.urlparse(link)
+            params = urllib.parse.parse_qs(parsed.query)
+            if "uddg" in params:
+                try:
+                    return urllib.parse.unquote(params["uddg"][0])
+                except Exception:
+                    return link
+        return link
+
+    def _extract_content(self, link: str, title: str) -> SearchResult | None:
         start_t = time.time()
 
         try:
-            self.driver.get(link)
-            time.sleep(2)
-
-            title = self.driver.title
-
-            try:
-                time_el = self.driver.find_element(By.CSS_SELECTOR, "time")
-                time_text = time_el.text
-            except Exception:
-                time_text = "未找到发布时间"
-
-            p_tags = self.driver.find_elements(By.TAG_NAME, "p")
-            content = "\n".join([p.text for p in p_tags if p.text.strip()])
-
-            media_cn, media_en = self._guess_media_names(link)
-
-            return SearchResult(
-                title=title,
-                author="未知作者",
-                published_at=time_text,
-                media_cn=media_cn,
-                media_en=media_en,
-                content=content,
-                link=link,
-                elapsed=time.time() - start_t,
-            )
-        except Exception:
+            resp = self.session.get(link, timeout=8)
+            resp.raise_for_status()
+        except requests.RequestException:
             return None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
+        content = "\n".join(paragraphs[:10])
+
+        time_text = self._find_time_text(soup)
+        media_cn, media_en = self._guess_media_names(link)
+
+        return SearchResult(
+            title=title,
+            author="未知作者",
+            published_at=time_text,
+            media_cn=media_cn,
+            media_en=media_en,
+            content=content,
+            link=link,
+            elapsed=time.time() - start_t,
+        )
+
+    def _find_time_text(self, soup: BeautifulSoup) -> str:
+        time_tag = soup.find("time")
+        if time_tag and time_tag.get_text(strip=True):
+            return time_tag.get_text(strip=True)
+
+        meta_time = soup.find("meta", attrs={"property": "article:published_time"})
+        if meta_time and meta_time.get("content"):
+            return meta_time.get("content")
+
+        meta_date = soup.find("meta", attrs={"name": "date"})
+        if meta_date and meta_date.get("content"):
+            return meta_date.get("content")
+
+        return "未找到发布时间"
 
     def _guess_media_names(self, link: str) -> Tuple[str, str]:
         match = re.search(r"https?://([^/]+)/", link)
@@ -185,8 +139,7 @@ class GoogleCrawler:
         }.get(domain, "未知媒体")
         return media_cn, media_en
 
-    def __del__(self):  # pragma: no cover - destructor safety
-        try:
-            self.driver.quit()
-        except Exception:
-            pass
+    def _build_date_hint(self, start_date: str, end_date: str) -> str:
+        if start_date and end_date:
+            return f"after:{start_date} before:{end_date}"
+        return ""
