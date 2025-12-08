@@ -74,6 +74,7 @@ class GoogleCrawler:
     def _fetch_result_links(self, query: str) -> List:
         """Try a rendered DuckDuckGo page first, then multiple HTML fallbacks."""
 
+        resp = None
         rendered_items: List = []
         try:
             resp = self.session.get(
@@ -86,6 +87,12 @@ class GoogleCrawler:
 
         if rendered_items:
             return rendered_items
+
+        if resp is not None:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            html_items = soup.select("a.result__a")
+            if html_items:
+                return html_items
 
         endpoints = [
             ("https://duckduckgo.com/html/", ".result__a"),
