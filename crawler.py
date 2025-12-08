@@ -6,6 +6,7 @@ from typing import List, Tuple
 
 import requests
 from bs4 import BeautifulSoup
+from requests_html import HTMLSession
 
 
 @dataclass
@@ -24,12 +25,13 @@ class GoogleCrawler:
     """A lightweight crawler that uses DuckDuckGo HTML search for speed."""
 
     def __init__(self):
-        self.session = requests.Session()
+        self.session = HTMLSession()
         self.session.headers.update(
             {
                 "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0 Safari/537.36"
                 ),
             }
         )
@@ -52,8 +54,8 @@ class GoogleCrawler:
 
         search_results: List[SearchResult] = []
         for link_el in items[:10]:
-            href = link_el.get("href")
-            title = link_el.get_text(strip=True)
+            href = self._get_attr(link_el, "href")
+            title = self._get_text(link_el)
             if not href or not title:
                 continue
 
@@ -93,7 +95,24 @@ class GoogleCrawler:
 
         return []
 
+    def _get_attr(self, link_el, attr: str):
+        if hasattr(link_el, "attrs"):
+            return link_el.attrs.get(attr)
+        if hasattr(link_el, "get"):
+            return link_el.get(attr)
+        return None
+
+    def _get_text(self, link_el) -> str:
+        if hasattr(link_el, "text") and getattr(link_el, "text"):
+            return link_el.text.strip()
+        if hasattr(link_el, "get_text"):
+            return link_el.get_text(strip=True)
+        return ""
+
     def _clean_link(self, link: str) -> str:
+        if link.startswith("/l/?"):
+            link = f"https://duckduckgo.com{link}"
+
         parsed = urllib.parse.urlparse(link)
         params = urllib.parse.parse_qs(parsed.query)
 
@@ -121,15 +140,22 @@ class GoogleCrawler:
         )
 
     def _find_snippet_text(self, link_el) -> str:
-        for ancestor in [link_el, link_el.parent, getattr(link_el, "parent", None) and link_el.parent.parent]:
-            if not ancestor:
+        ancestors = [
+            link_el,
+            getattr(link_el, "parent", None),
+            getattr(link_el, "parent", None)
+            and getattr(link_el.parent, "parent", None),
+        ]
+
+        for anc in ancestors:
+            if not anc:
                 continue
 
-            snippet_node = ancestor.find(class_=re.compile("snippet", re.IGNORECASE))
+            snippet_node = anc.find(class_=re.compile("snippet", re.IGNORECASE))
             if snippet_node and snippet_node.get_text(strip=True):
                 return snippet_node.get_text(strip=True)
 
-            snippet_node = ancestor.find("p")
+            snippet_node = anc.find("p")
             if snippet_node and snippet_node.get_text(strip=True):
                 return snippet_node.get_text(strip=True)
 
@@ -145,7 +171,7 @@ class GoogleCrawler:
             return None
 
         soup = BeautifulSoup(resp.text, "html.parser")
-        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
+        paragraphs = [p.get_get(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
         content = "\n".join(paragraphs[:10])
 
         time_text = self._find_time_text(soup)
