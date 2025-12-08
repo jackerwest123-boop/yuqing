@@ -90,7 +90,7 @@ class GoogleCrawler:
 
         if resp is not None:
             soup = BeautifulSoup(resp.text, "html.parser")
-            html_items = soup.select("a.result__a")
+            html_items = soup.select("a.result__a, a.result__url")
             if html_items:
                 return html_items
 
