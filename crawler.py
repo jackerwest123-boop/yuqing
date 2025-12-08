@@ -48,17 +48,7 @@ class GoogleCrawler:
         date_hint = self._build_date_hint(start_date, end_date)
         query = f"{quoted} {date_hint}".strip()
 
-        url = "https://duckduckgo.com/html/"
-        params = {"q": query, "kl": "us-en"}
-
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-        except requests.RequestException:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select(".result__a")
+        items = self._fetch_result_links(query)
 
         search_results: List[SearchResult] = []
         for link_el in items[:10]:
@@ -71,19 +61,79 @@ class GoogleCrawler:
             extracted = self._extract_content(cleaned_link, title)
             if extracted:
                 search_results.append(extracted)
+                continue
+
+            fallback = self._build_fallback_result(link_el, cleaned_link, title)
+            if fallback:
+                search_results.append(fallback)
 
         return search_results
 
+    def _fetch_result_links(self, query: str) -> List:
+        """Try multiple DuckDuckGo HTML endpoints to reduce empty-result cases."""
+
+        endpoints = [
+            ("https://duckduckgo.com/html/", ".result__a"),
+            ("https://html.duckduckgo.com/html/", ".result__a"),
+            ("https://duckduckgo.com/lite/", "a.result-link"),
+        ]
+        params = {"q": query, "kl": "us-en"}
+
+        for url, selector in endpoints:
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.RequestException:
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.select(selector)
+            if items:
+                return items
+
+        return []
+
     def _clean_link(self, link: str) -> str:
-        if "duckduckgo.com/l/?uddg=" in link:
-            parsed = urllib.parse.urlparse(link)
-            params = urllib.parse.parse_qs(parsed.query)
-            if "uddg" in params:
-                try:
-                    return urllib.parse.unquote(params["uddg"][0])
-                except Exception:
-                    return link
+        parsed = urllib.parse.urlparse(link)
+        params = urllib.parse.parse_qs(parsed.query)
+
+        if "uddg" in params and params["uddg"]:
+            try:
+                return urllib.parse.unquote(params["uddg"][0])
+            except Exception:
+                return link
+
         return link
+
+    def _build_fallback_result(self, link_el, link: str, title: str) -> SearchResult | None:
+        snippet = self._find_snippet_text(link_el)
+        media_cn, media_en = self._guess_media_names(link)
+
+        return SearchResult(
+            title=title,
+            author="未知作者",
+            published_at="未找到发布时间",
+            media_cn=media_cn,
+            media_en=media_en,
+            content=snippet or "未能抓取到正文内容。",
+            link=link,
+            elapsed=0.0,
+        )
+
+    def _find_snippet_text(self, link_el) -> str:
+        for ancestor in [link_el, link_el.parent, getattr(link_el, "parent", None) and link_el.parent.parent]:
+            if not ancestor:
+                continue
+
+            snippet_node = ancestor.find(class_=re.compile("snippet", re.IGNORECASE))
+            if snippet_node and snippet_node.get_text(strip=True):
+                return snippet_node.get_text(strip=True)
+
+            snippet_node = ancestor.find("p")
+            if snippet_node and snippet_node.get_text(strip=True):
+                return snippet_node.get_text(strip=True)
+
+        return ""
 
     def _extract_content(self, link: str, title: str) -> SearchResult | None:
         start_t = time.time()
