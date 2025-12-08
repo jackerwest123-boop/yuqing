@@ -1,9 +1,11 @@
 import datetime
+import os
 import random
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from openai import OpenAI
 
 from crawler import GoogleCrawler, SearchResult
 
@@ -179,8 +181,13 @@ def analyze():
         except ValueError:
             continue
 
-    answer = _local_answer(question, selected)
-    flash(answer)
+    try:
+        answer = _ai_answer(question, selected)
+        flash(answer)
+    except RuntimeError as exc:
+        flash(str(exc))
+    except Exception:
+        flash("AI 分析失败，请检查 OpenAI 配置或稍后再试。")
     return redirect(url_for("index"))
 
 
@@ -190,17 +197,41 @@ def chrome_devtools_probe():
     return jsonify({"status": "ok"})
 
 
-def _local_answer(question: str, results: List[SearchResult]) -> str:
-    context = []
-    for res in results:
-        context.append(f"《{res.title}》({res.media_cn}/{res.media_en}, {res.published_at})")
-    context_text = "；".join(context) if context else "无可用结果"
+def _ai_answer(question: str, results: List[SearchResult]) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("缺少 OPENAI_API_KEY 环境变量，无法调用 AI 分析。")
 
-    return (
-        f"AI 简要分析（离线规则模拟）：针对问题“{question}”，"
-        f"可参考的资料来源有：{context_text}。结合这些来源，"
-        "建议优先关注标题中与关键问题相关的段落，并对比发布时间的先后以评估情报的时效性。"
+    client = OpenAI(api_key=api_key)
+
+    context_lines = []
+    for res in results:
+        summary = res.content[:400].replace("\n", " ") + ("..." if len(res.content) > 400 else "")
+        context_lines.append(
+            f"标题：{res.title}\n媒体：{res.media_cn} ({res.media_en})\n时间：{res.published_at}\n摘要：{summary}"
+        )
+
+    context_text = "\n\n".join(context_lines)
+
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "你是安全情报分析助手，请用简洁的中文总结，并给出可执行建议。",
+            },
+            {
+                "role": "user",
+                "content": (
+                    "请基于以下检索到的情报回答问题。" "\n\n" f"问题：{question}\n\n情报：\n{context_text}"
+                ),
+            },
+        ],
+        temperature=0.4,
+        max_tokens=600,
     )
+
+    return completion.choices[0].message.content.strip()
 
 
 if __name__ == "__main__":

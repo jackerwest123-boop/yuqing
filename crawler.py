@@ -40,6 +40,10 @@ class GoogleCrawler:
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--no-sandbox")
         options.add_argument("--lang=en-US")
+        options.add_experimental_option(
+            "prefs", {"profile.managed_default_content_settings.images": 2}
+        )
+        options.page_load_strategy = "eager"
         if headless:
             options.add_argument("--headless=new")
 
@@ -72,7 +76,7 @@ class GoogleCrawler:
         self.driver.get(url)
 
         try:
-            WebDriverWait(self.driver, 30).until(
+            WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "h3"))
             )
         except TimeoutException as exc:
@@ -81,47 +85,47 @@ class GoogleCrawler:
             ) from exc
 
         try:
-            tools_btn = WebDriverWait(self.driver, 30).until(
+            tools_btn = WebDriverWait(self.driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//div[@role='button' and .='Tools']"))
             )
             tools_btn.click()
-            time.sleep(0.5)
+            time.sleep(0.3)
 
-            time_btn = WebDriverWait(self.driver, 30).until(
+            time_btn = WebDriverWait(self.driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//div[@role='button' and .='Any time']"))
             )
             time_btn.click()
-            time.sleep(0.5)
+            time.sleep(0.3)
 
-            custom_range_btn = WebDriverWait(self.driver, 30).until(
+            custom_range_btn = WebDriverWait(self.driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Custom range')]"))
             )
             custom_range_btn.click()
-            time.sleep(0.5)
+            time.sleep(0.3)
 
-            start_input = WebDriverWait(self.driver, 30).until(
+            start_input = WebDriverWait(self.driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='Start date']"))
             )
             start_input.clear()
             start_input.send_keys(start_date)
 
-            end_input = WebDriverWait(self.driver, 30).until(
+            end_input = WebDriverWait(self.driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='End date']"))
             )
             end_input.clear()
             end_input.send_keys(end_date)
 
-            apply_btn = WebDriverWait(self.driver, 30).until(
+            apply_btn = WebDriverWait(self.driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, "//input[@value='Apply']"))
             )
             apply_btn.click()
-            time.sleep(1)
+            time.sleep(0.5)
         except Exception:  # pragma: no cover - best effort
             pass
 
     def _get_search_results(self) -> List[str]:
         try:
-            WebDriverWait(self.driver, 20).until(
+            WebDriverWait(self.driver, 15).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, "h3"))
             )
         except TimeoutException as exc:
@@ -157,7 +161,7 @@ class GoogleCrawler:
 
         try:
             self.driver.get(link)
-            time.sleep(2)
+            time.sleep(1)
 
             title = self.driver.title
 
