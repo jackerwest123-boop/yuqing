@@ -48,17 +48,7 @@ class GoogleCrawler:
         date_hint = self._build_date_hint(start_date, end_date)
         query = f"{quoted} {date_hint}".strip()
 
-        url = "https://duckduckgo.com/html/"
-        params = {"q": query, "kl": "us-en"}
-
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-        except requests.RequestException:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select(".result__a")
+        items = self._fetch_result_links(query)
 
         search_results: List[SearchResult] = []
         for link_el in items[:10]:
@@ -74,15 +64,40 @@ class GoogleCrawler:
 
         return search_results
 
+    def _fetch_result_links(self, query: str) -> List:
+        """Try multiple DuckDuckGo HTML endpoints to reduce empty-result cases."""
+
+        endpoints = [
+            ("https://duckduckgo.com/html/", ".result__a"),
+            ("https://html.duckduckgo.com/html/", ".result__a"),
+            ("https://duckduckgo.com/lite/", "a.result-link"),
+        ]
+        params = {"q": query, "kl": "us-en"}
+
+        for url, selector in endpoints:
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.RequestException:
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.select(selector)
+            if items:
+                return items
+
+        return []
+
     def _clean_link(self, link: str) -> str:
-        if "duckduckgo.com/l/?uddg=" in link:
-            parsed = urllib.parse.urlparse(link)
-            params = urllib.parse.parse_qs(parsed.query)
-            if "uddg" in params:
-                try:
-                    return urllib.parse.unquote(params["uddg"][0])
-                except Exception:
-                    return link
+        parsed = urllib.parse.urlparse(link)
+        params = urllib.parse.parse_qs(parsed.query)
+
+        if "uddg" in params and params["uddg"]:
+            try:
+                return urllib.parse.unquote(params["uddg"][0])
+            except Exception:
+                return link
+
         return link
 
     def _extract_content(self, link: str, title: str) -> SearchResult | None:
