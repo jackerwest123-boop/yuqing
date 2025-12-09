@@ -72,34 +72,26 @@ class GoogleCrawler:
         return search_results
 
     def _fetch_result_links(self, query: str) -> List:
-        """Render DuckDuckGo results in a headless browser before falling back."""
+        """Try multiple DuckDuckGo HTML endpoints to reduce empty-result cases."""
 
-        try:
-            resp = self.session.get(
-                "https://duckduckgo.com/", params={"q": query, "ia": "web"}, timeout=20
-            )
-            resp.html.render(timeout=25, sleep=1)
-            rendered_items = resp.html.find("a.result__a")
-            if rendered_items:
-                return rendered_items
+        endpoints = [
+            ("https://duckduckgo.com/html/", ".result__a"),
+            ("https://html.duckduckgo.com/html/", ".result__a"),
+            ("https://duckduckgo.com/lite/", "a.result-link"),
+        ]
+        params = {"q": query, "kl": "us-en"}
 
-            soup = BeautifulSoup(resp.html.html or resp.text, "html.parser")
-            html_items = soup.select("a.result__a, a.result__url")
-            if html_items:
-                return html_items
-        except Exception:
-            pass
+        for url, selector in endpoints:
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.RequestException:
+                continue
 
-        try:
-            lite_resp = self.session.get(
-                "https://duckduckgo.com/lite/", params={"q": query, "kl": "us-en"}, timeout=15
-            )
-            lite_resp.html.render(timeout=15, sleep=0.5)
-            lite_items = lite_resp.html.find("a.result-link")
-            if lite_items:
-                return lite_items
-        except Exception:
-            pass
+            soup = BeautifulSoup(resp.text, "html.parser")
+            items = soup.select(selector)
+            if items:
+                return items
 
         return []
 
@@ -148,41 +140,22 @@ class GoogleCrawler:
         )
 
     def _find_snippet_text(self, link_el) -> str:
-        if type(link_el).__module__.startswith("requests_html"):
-            ancestors = [link_el]
-            try:
-                parent = link_el.element.getparent()
-                if parent is not None:
-                    ancestors.append(parent)
-                    grand = parent.getparent()
-                    if grand is not None:
-                        ancestors.append(grand)
-            except Exception:
-                pass
+        ancestors = [
+            link_el,
+            getattr(link_el, "parent", None),
+            getattr(link_el, "parent", None)
+            and getattr(link_el.parent, "parent", None),
+        ]
 
-            for anc in ancestors:
-                for selector in [".result__snippet", "p"]:
-                    try:
-                        found = anc.find(selector, first=True)
-                        if found and getattr(found, "text", ""):
-                            return found.text.strip()
-                    except Exception:
-                        continue
-
-                if hasattr(anc, "text") and anc.text:
-                    return anc.text.strip()
-
-            return ""
-
-        for ancestor in [link_el, link_el.parent, getattr(link_el, "parent", None) and link_el.parent.parent]:
-            if not ancestor:
+        for anc in ancestors:
+            if not anc:
                 continue
 
-            snippet_node = ancestor.find(class_=re.compile("snippet", re.IGNORECASE))
+            snippet_node = anc.find(class_=re.compile("snippet", re.IGNORECASE))
             if snippet_node and snippet_node.get_text(strip=True):
                 return snippet_node.get_text(strip=True)
 
-            snippet_node = ancestor.find("p")
+            snippet_node = anc.find("p")
             if snippet_node and snippet_node.get_text(strip=True):
                 return snippet_node.get_text(strip=True)
 
@@ -194,11 +167,13 @@ class GoogleCrawler:
         try:
             resp = self.session.get(link, timeout=12)
             resp.raise_for_status()
+
             try:
                 resp.html.render(timeout=15, sleep=0.5)
                 html_text = resp.html.html or resp.text
             except Exception:
                 html_text = resp.text
+
         except requests.RequestException:
             return None
 
