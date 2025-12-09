@@ -13,11 +13,21 @@
    ```bash
     pip install -r requirements.txt
    ```
-2. 启动服务
+2. 配置 OpenAI 环境变量（可直接导出，也可在项目根目录创建 `.env` 文件）
    ```bash
+    # 方式一：直接导出
     export OPENAI_API_KEY=你的 OpenAI Key
+    export OPENAI_BASE_URL=https://api.openai.com/v1  # 如需自定义可选
+    export OPENAI_MODEL=gpt-4o-mini  # 如需指定模型（可选）
+
+    # 方式二：使用 .env 文件
+    cp .env.example .env
+    # 然后编辑 .env 写入你的 OPENAI_API_KEY，按需设置 OPENAI_BASE_URL/OPENAI_MODEL
+   ```
+3. 启动服务
+   ```bash
     python app.py
    ```
-3. 浏览器访问 `http://localhost:5000`。
+4. 浏览器访问 `http://localhost:5000`。
 
-> 说明：爬虫基于 HTTP 请求解析 DuckDuckGo 结果，无需浏览器或驱动。但 OpenAI 分析需要在环境变量中配置 `OPENAI_API_KEY`。
+> 说明：爬虫基于 HTTP 请求解析 DuckDuckGo 结果，无需浏览器或驱动。OpenAI 分析会自动读取环境变量或 `.env` 中的配置。
