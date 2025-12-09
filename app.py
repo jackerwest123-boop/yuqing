@@ -3,15 +3,18 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from openai import OpenAI
 
 from crawler import GoogleCrawler, SearchResult
 
 
+load_dotenv()
+
 app = Flask(__name__)
 app.secret_key = "keyword-search-demo"
-client = OpenAI()
+client: OpenAI | None = None
 
 
 RANGE_PRESETS = {
@@ -118,11 +121,14 @@ def analyze():
 
 
 def _ai_answer(question: str, results: List[SearchResult]) -> str:
+    global client
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return "未检测到 OPENAI_API_KEY 环境变量，请在环境中配置有效的 OpenAI API Key。"
+        return "未检测到 OPENAI_API_KEY 环境变量，请在环境中配置有效的 OpenAI API Key（可在 .env 文件中设置）。"
 
-    client.api_key = api_key
+    if client is None:
+        client = OpenAI(api_key=api_key, base_url=os.getenv("OPENAI_BASE_URL"))
 
     context = []
     for res in results:
@@ -135,9 +141,11 @@ def _ai_answer(question: str, results: List[SearchResult]) -> str:
         "请引用相关来源并用简洁的中文要点回复，最后附上你的不确定性说明。"
     )
 
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=[
                 {"role": "system", "content": prompt},
                 {

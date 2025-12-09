@@ -6,6 +6,7 @@ from typing import List, Tuple
 
 import requests
 from bs4 import BeautifulSoup
+from requests_html import HTMLSession
 
 
 @dataclass
@@ -24,12 +25,13 @@ class GoogleCrawler:
     """A lightweight crawler that uses DuckDuckGo HTML search for speed."""
 
     def __init__(self):
-        self.session = requests.Session()
+        self.session = HTMLSession()
         self.session.headers.update(
             {
                 "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0 Safari/537.36"
                 ),
             }
         )
@@ -48,22 +50,12 @@ class GoogleCrawler:
         date_hint = self._build_date_hint(start_date, end_date)
         query = f"{quoted} {date_hint}".strip()
 
-        url = "https://duckduckgo.com/html/"
-        params = {"q": query, "kl": "us-en"}
-
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-        except requests.RequestException:
-            return []
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select(".result__a")
+        items = self._fetch_result_links(query)
 
         search_results: List[SearchResult] = []
         for link_el in items[:10]:
-            href = link_el.get("href")
-            title = link_el.get_text(strip=True)
+            href = self._get_attr(link_el, "href")
+            title = self._get_text(link_el)
             if not href or not title:
                 continue
 
@@ -71,30 +63,146 @@ class GoogleCrawler:
             extracted = self._extract_content(cleaned_link, title)
             if extracted:
                 search_results.append(extracted)
+                continue
+
+            fallback = self._build_fallback_result(link_el, cleaned_link, title)
+            if fallback:
+                search_results.append(fallback)
 
         return search_results
 
+    def _fetch_result_links(self, query: str) -> List:
+        """Render DuckDuckGo results in a headless browser before falling back."""
+
+        try:
+            resp = self.session.get(
+                "https://duckduckgo.com/", params={"q": query, "ia": "web"}, timeout=20
+            )
+            resp.html.render(timeout=25, sleep=1)
+            rendered_items = resp.html.find("a.result__a")
+            if rendered_items:
+                return rendered_items
+
+            soup = BeautifulSoup(resp.html.html or resp.text, "html.parser")
+            html_items = soup.select("a.result__a, a.result__url")
+            if html_items:
+                return html_items
+        except Exception:
+            pass
+
+        try:
+            lite_resp = self.session.get(
+                "https://duckduckgo.com/lite/", params={"q": query, "kl": "us-en"}, timeout=15
+            )
+            lite_resp.html.render(timeout=15, sleep=0.5)
+            lite_items = lite_resp.html.find("a.result-link")
+            if lite_items:
+                return lite_items
+        except Exception:
+            pass
+
+        return []
+
+    def _get_attr(self, link_el, attr: str):
+        if hasattr(link_el, "attrs"):
+            return link_el.attrs.get(attr)
+        if hasattr(link_el, "get"):
+            return link_el.get(attr)
+        return None
+
+    def _get_text(self, link_el) -> str:
+        if hasattr(link_el, "text") and getattr(link_el, "text"):
+            return link_el.text.strip()
+        if hasattr(link_el, "get_text"):
+            return link_el.get_text(strip=True)
+        return ""
+
     def _clean_link(self, link: str) -> str:
-        if "duckduckgo.com/l/?uddg=" in link:
-            parsed = urllib.parse.urlparse(link)
-            params = urllib.parse.parse_qs(parsed.query)
-            if "uddg" in params:
-                try:
-                    return urllib.parse.unquote(params["uddg"][0])
-                except Exception:
-                    return link
+        if link.startswith("/l/?"):
+            link = f"https://duckduckgo.com{link}"
+
+        parsed = urllib.parse.urlparse(link)
+        params = urllib.parse.parse_qs(parsed.query)
+
+        if "uddg" in params and params["uddg"]:
+            try:
+                return urllib.parse.unquote(params["uddg"][0])
+            except Exception:
+                return link
+
         return link
+
+    def _build_fallback_result(self, link_el, link: str, title: str) -> SearchResult | None:
+        snippet = self._find_snippet_text(link_el)
+        media_cn, media_en = self._guess_media_names(link)
+
+        return SearchResult(
+            title=title,
+            author="未知作者",
+            published_at="未找到发布时间",
+            media_cn=media_cn,
+            media_en=media_en,
+            content=snippet or "未能抓取到正文内容。",
+            link=link,
+            elapsed=0.0,
+        )
+
+    def _find_snippet_text(self, link_el) -> str:
+        if type(link_el).__module__.startswith("requests_html"):
+            ancestors = [link_el]
+            try:
+                parent = link_el.element.getparent()
+                if parent is not None:
+                    ancestors.append(parent)
+                    grand = parent.getparent()
+                    if grand is not None:
+                        ancestors.append(grand)
+            except Exception:
+                pass
+
+            for anc in ancestors:
+                for selector in [".result__snippet", "p"]:
+                    try:
+                        found = anc.find(selector, first=True)
+                        if found and getattr(found, "text", ""):
+                            return found.text.strip()
+                    except Exception:
+                        continue
+
+                if hasattr(anc, "text") and anc.text:
+                    return anc.text.strip()
+
+            return ""
+
+        for ancestor in [link_el, link_el.parent, getattr(link_el, "parent", None) and link_el.parent.parent]:
+            if not ancestor:
+                continue
+
+            snippet_node = ancestor.find(class_=re.compile("snippet", re.IGNORECASE))
+            if snippet_node and snippet_node.get_text(strip=True):
+                return snippet_node.get_text(strip=True)
+
+            snippet_node = ancestor.find("p")
+            if snippet_node and snippet_node.get_text(strip=True):
+                return snippet_node.get_text(strip=True)
+
+        return ""
 
     def _extract_content(self, link: str, title: str) -> SearchResult | None:
         start_t = time.time()
 
         try:
-            resp = self.session.get(link, timeout=8)
+            resp = self.session.get(link, timeout=12)
             resp.raise_for_status()
+            try:
+                resp.html.render(timeout=15, sleep=0.5)
+                html_text = resp.html.html or resp.text
+            except Exception:
+                html_text = resp.text
         except requests.RequestException:
             return None
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+        soup = BeautifulSoup(html_text, "html.parser")
         paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
         content = "\n".join(paragraphs[:10])
 
