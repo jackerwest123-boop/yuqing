@@ -165,13 +165,20 @@ class GoogleCrawler:
         start_t = time.time()
 
         try:
-            resp = self.session.get(link, timeout=8)
+            resp = self.session.get(link, timeout=12)
             resp.raise_for_status()
+
+            try:
+                resp.html.render(timeout=15, sleep=0.5)
+                html_text = resp.html.html or resp.text
+            except Exception:
+                html_text = resp.text
+
         except requests.RequestException:
             return None
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        paragraphs = [p.get_get(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
+        soup = BeautifulSoup(html_text, "html.parser")
+        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
         content = "\n".join(paragraphs[:10])
 
         time_text = self._find_time_text(soup)
